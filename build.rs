@@ -5,9 +5,7 @@ use error_rules::*;
 use std::io::Write;
 
 const PLOTLY_SCHEMA_URL: &str = concat!(
-    "https://raw.githubusercontent.com/plotly/plotly.js/v",
-    env!("CARGO_PKG_VERSION"),
-    "/dist/plot-schema.json"
+    "https://raw.githubusercontent.com/plotly/plotly.js/v1.54.0/dist/plot-schema.json"
 );
 
 #[derive(Debug, Error)]
