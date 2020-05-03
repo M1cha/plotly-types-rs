@@ -71,26 +71,3 @@ impl<T> IsEmpty<T> {
 }
 
 include!(concat!(env!("OUT_DIR"), "/mod.rs"));
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use traces::scatter::Scatter;
-
-    #[test]
-    fn blah() {
-        let x = vec![0.0f64];
-
-        let mut trace: Scatter<(), _, _, (), (), (), (), (), ()> = Scatter::default();
-        trace.x(&x).y(&x);
-        trace.hoverlabel().bgcolor("#ffffff");
-        println!("{}", serde_json::to_string(&trace).unwrap());
-
-        /*
-        let mut t = crate::traces::heatmap::Heatmap::default();
-        let mut cs = vec![crate::ColorScaleElem::new(1.0, "green")];
-
-        t.colorscale(crate::ColorScale::Array(&cs));
-        println!("{}", serde_json::to_string(&t).unwrap());*/
-    }
-}
