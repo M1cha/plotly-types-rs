@@ -341,7 +341,12 @@ fn gen_struct<F: std::io::Write>(
 }
 
 fn main() -> Result<(), Error> {
-    let schema = reqwest::blocking::get(PLOTLY_SCHEMA_URL)?.text()?;
+    let local_schema_path = std::path::Path::new("plot-schema.json");
+    let schema = if local_schema_path.exists() {
+        std::fs::read_to_string(local_schema_path)?
+    } else {
+        reqwest::blocking::get(PLOTLY_SCHEMA_URL)?.text()?
+    };
     let schema = json::parse(&schema)?;
 
     let out_path = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
