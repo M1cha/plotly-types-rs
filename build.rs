@@ -4,9 +4,8 @@ use convert_case::{Case, Casing};
 use error_rules::*;
 use std::io::Write;
 
-const PLOTLY_SCHEMA_URL: &str = concat!(
-    "https://raw.githubusercontent.com/plotly/plotly.js/v1.54.0/dist/plot-schema.json"
-);
+const PLOTLY_SCHEMA_URL: &str =
+    concat!("https://raw.githubusercontent.com/plotly/plotly.js/v1.54.0/dist/plot-schema.json");
 
 #[derive(Debug, Error)]
 enum Error {
