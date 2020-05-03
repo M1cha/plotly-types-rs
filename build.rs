@@ -409,5 +409,7 @@ fn main() -> Result<(), Error> {
     writeln!(&mut f_mod, "pub mod config;")?;
     writeln!(&mut f_mod, "pub mod animation;")?;
 
+    println!("cargo:rerun-if-changed=build.rs");
+
     Ok(())
 }
