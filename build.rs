@@ -157,20 +157,51 @@ impl RustType {
     }
 }
 
-fn gen_struct(
-    path: &std::path::Path,
+fn make_lt_and_g(
+    attrname: &str,
+    num_lifetimes: usize,
+    num_generics: usize,
+) -> (Vec<String>, Vec<String>) {
+    let mut type_lifetimes = Vec::with_capacity(num_lifetimes);
+    let mut type_generics = Vec::with_capacity(num_generics);
+
+    for i in 0..type_lifetimes.capacity() {
+        type_lifetimes.push(format!("'{}_l{}", attrname, i));
+    }
+
+    for i in 0..type_generics.capacity() {
+        type_generics.push(format!("{}G{}", attrname.to_case(Case::UpperFlat), i));
+    }
+
+    (type_lifetimes, type_generics)
+}
+
+fn gen_struct<F: std::io::Write>(
+    f: &mut F,
+    modname: Option<&str>,
     structname: &str,
     description: Option<&str>,
     attrs: &json::JsonValue,
-) -> Result<(), Error> {
+) -> Result<(usize, usize), Error> {
     let mut code: Vec<u8> = Vec::new();
+    let mut modcode: Vec<u8> = Vec::new();
     let mut fields: Vec<u8> = Vec::new();
     let mut lifetimes: Vec<String> = Vec::new();
     let mut generics: Vec<String> = Vec::new();
 
     for (attrname_js, attr) in attrs.entries() {
-        if attrname_js == "customdata" {
+        if attrname_js == "box" {
             continue;
+        }
+
+        match attrname_js {
+            "customdata" | "type" | "_deprecated" | "editType" | "description" | "impliedEdits"
+            | "_isSubplotObj" | "_arrayAttrRegexps" => continue,
+            "role" => {
+                assert_eq!(attr.as_str().unwrap(), "object");
+                break;
+            }
+            _ => (),
         }
         let attrname = attrname_js.to_case(Case::Snake);
 
@@ -182,25 +213,19 @@ fn gen_struct(
 
         if let Some(valtype) = attr["valType"].as_str() {
             let rusttype = RustType::from(valtype);
-            let mut type_lifetimes = Vec::with_capacity(rusttype.num_lifetimes());
-            let mut type_generics = Vec::with_capacity(rusttype.num_generics());
-
-            for i in 0..type_lifetimes.capacity() {
-                type_lifetimes.push(format!("'{}_l{}", attrname, i));
-            }
-
-            for i in 0..type_generics.capacity() {
-                type_generics.push(format!("{}G{}", attrname.to_case(Case::Upper), i));
-            }
-
+            let (type_lifetimes, type_generics) =
+                make_lt_and_g(&attrname, rusttype.num_lifetimes(), rusttype.num_generics());
             let typestr = rusttype.to_str("usize", Some(&type_lifetimes), Some(&type_generics));
 
+            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
             writeln!(
                 &mut fields,
                 "    #[serde(skip_serializing_if = \"Option::is_none\")]"
             )?;
-            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
             writeln!(&mut fields, "    {}: Option<{}>,", attrname, typestr)?;
+
+            lifetimes.extend_from_slice(&type_lifetimes);
+            generics.extend_from_slice(&type_generics);
 
             if let Some(description) = attr["description"].as_str() {
                 writeln!(&mut code, "    /// {}", description)?;
@@ -213,42 +238,108 @@ fn gen_struct(
             writeln!(&mut code, "        self.{} = Some({});", attrname, attrname)?;
             writeln!(&mut code, "        self")?;
             writeln!(&mut code, "    }}")?;
-
-            lifetimes.extend_from_slice(&type_lifetimes);
-            generics.extend_from_slice(&type_generics);
         } else if let Some(role) = attr["role"].as_str() {
             if role != "object" {
+                panic!("role {} is not supported", role);
+            }
+            if attr.has_key("items") {
+                assert_eq!(attr["items"].len(), 1);
+                // TODO: array support
                 continue;
             }
 
-            //writeln!(&mut fields, "    {}: {},", attrname, attrname.to_case(Case::Pascal))?;
+            let substructname = attrname.to_case(Case::Pascal);
+
+            let (ss_num_lifetimes, ss_num_generics) = gen_struct(
+                &mut modcode,
+                Some(&attrname),
+                &substructname,
+                attr["description"].as_str(),
+                attr,
+            )?;
+            let (type_lifetimes, type_generics) =
+                make_lt_and_g(&attrname, ss_num_lifetimes, ss_num_generics);
+
+            let params_joined = [&type_lifetimes[..], &type_generics[..]]
+                .concat()
+                .join(", ");
+            let namespace = if let Some(modname) = &modname {
+                format!("{}::", modname)
+            } else {
+                "".to_string()
+            };
+            let typestr = format!("{}{}<{}>", namespace, substructname, params_joined);
+
+            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
+            writeln!(
+                &mut fields,
+                "    #[serde(skip_serializing_if = \"crate::IsEmpty::is_empty\")]"
+            )?;
+            writeln!(
+                &mut fields,
+                "    {}: crate::IsEmpty<{}>,",
+                attrname, typestr
+            )?;
+
+            lifetimes.extend_from_slice(&type_lifetimes);
+            generics.extend_from_slice(&type_generics);
+
+            if let Some(description) = attr["description"].as_str() {
+                writeln!(&mut code, "    /// {}", description)?;
+            }
+            writeln!(
+                &mut code,
+                "    pub fn {}(&mut self) -> &mut {} {{",
+                attrname, typestr
+            )?;
+            writeln!(&mut code, "        self.{}.is_empty = false;", attrname)?;
+            writeln!(&mut code, "        &mut self.{}.data", attrname)?;
+            writeln!(&mut code, "    }}")?;
+        } else {
+            panic!(
+                "unsupported member: {}/{} = {:?}",
+                structname, attrname_js, attr
+            );
         }
     }
 
     let params_joined = [&lifetimes[..], &generics[..]].concat().join(", ");
 
-    let mut f = std::fs::File::create(path)?;
-    writeln!(&mut f, "use serde::Serialize;")?;
-    writeln!(&mut f)?;
-
-    if let Some(description) = description {
-        writeln!(&mut f, "/// {}", description)?;
+    if modname.is_none() {
+        writeln!(f, "use serde::Serialize;")?;
     }
-    writeln!(&mut f, "#[derive(Default, Serialize)]")?;
-    writeln!(&mut f, "pub struct {}<{}> {{", structname, params_joined)?;
+    writeln!(f)?;
+    if let Some(description) = description {
+        writeln!(f, "/// {}", description)?;
+    }
+    writeln!(f, "#[derive(Default, Serialize)]")?;
+    writeln!(f, "pub struct {}<{}> {{", structname, params_joined)?;
     f.write(&fields)?;
-    writeln!(&mut f, "}}")?;
-    writeln!(&mut f)?;
+    writeln!(f, "}}")?;
+    writeln!(f)?;
 
     writeln!(
-        &mut f,
+        f,
         "impl<{}> {}<{}> {{",
         params_joined, structname, params_joined
     )?;
     f.write(&code)?;
-    writeln!(&mut f, "}}")?;
+    writeln!(f, "}}")?;
 
-    Ok(())
+    if modcode.len() > 0 {
+        if let Some(modname) = &modname {
+            writeln!(f, "pub mod {} {{", modname)?;
+            writeln!(f, "use serde::Serialize;")?;
+        }
+
+        f.write(&modcode)?;
+
+        if modname.is_some() {
+            writeln!(f, "}}")?;
+        }
+    }
+
+    Ok((lifetimes.len(), generics.len()))
 }
 
 fn main() -> Result<(), Error> {
@@ -270,16 +361,18 @@ fn main() -> Result<(), Error> {
     std::fs::create_dir(&transforms_path)?;
 
     let mut f_traces_mod = std::fs::File::create(traces_path.join("mod.rs"))?;
-    for (tracename, trace) in schema["traces"].entries() {
+    for (mut tracename, trace) in schema["traces"].entries() {
         if tracename == "box" {
-            continue;
+            tracename = "box_";
         }
         let structname = tracename.to_case(Case::Pascal);
 
         writeln!(&mut f_traces_mod, "pub mod {};", tracename)?;
 
+        let mut f = std::fs::File::create(traces_path.join(format!("{}.rs", tracename)))?;
         gen_struct(
-            &traces_path.join(format!("{}.rs", tracename)),
+            &mut f,
+            None,
             &structname,
             trace["meta"]["description"].as_str(),
             &trace["attributes"],
@@ -292,34 +385,24 @@ fn main() -> Result<(), Error> {
 
         writeln!(&mut f_transforms_mod, "pub mod {};", transformname)?;
 
-        gen_struct(
-            &transforms_path.join(format!("{}.rs", transformname)),
-            &structname,
-            None,
-            &transform["attributes"],
-        )?;
+        let mut f = std::fs::File::create(transforms_path.join(format!("{}.rs", transformname)))?;
+        gen_struct(&mut f, None, &structname, None, &transform["attributes"])?;
     }
 
-    gen_struct(
-        &out_path.join("config.rs"),
-        "Config",
-        None,
-        &schema["config"],
-    )?;
+    let mut f = std::fs::File::create(out_path.join("config.rs"))?;
+    gen_struct(&mut f, None, "Config", None, &schema["config"])?;
 
+    let mut f = std::fs::File::create(out_path.join("layout.rs"))?;
     gen_struct(
-        &out_path.join("layout.rs"),
+        &mut f,
+        None,
         "Layout",
         None,
         &schema["layout"]["layoutAttributes"],
     )?;
 
-    gen_struct(
-        &out_path.join("animation.rs"),
-        "Animation",
-        None,
-        &schema["animation"],
-    )?;
+    let mut f = std::fs::File::create(out_path.join("animation.rs"))?;
+    gen_struct(&mut f, None, "Animation", None, &schema["animation"])?;
 
     let mut f_mod = std::fs::File::create(out_path.join("mod.rs"))?;
     writeln!(&mut f_mod, "pub mod traces;")?;
