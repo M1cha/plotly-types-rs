@@ -1,8 +1,11 @@
 [package]
-name = "plotly"
+name = "plotly-types"
 version = "1.54.0-0.1.0"
 authors = ["Michael Zimmermann <sigmaepsilon92@gmail.com>"]
 edition = "2018"
+description = "bindings for https://github.com/plotly/plotly.js"
+repository = "https://github.com/M1cha/plotly-types-rs"
+license = "MIT"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
