@@ -38,8 +38,7 @@ pub enum ColorScale<'a> {
     Array(&'a [ColorScaleElem<'a>]),
 }
 
-#[derive(Serialize)]
-pub struct Any {}
+pub type Any = serde_json::Value;
 
 pub struct IsEmpty<T> {
     pub data: T,
