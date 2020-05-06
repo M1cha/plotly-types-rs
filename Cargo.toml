@@ -1,6 +1,6 @@
 [package]
 name = "plotly-types"
-version = "1.54.0-0.1.1"
+version = "1.54.1-0.1.1"
 authors = ["Michael Zimmermann <sigmaepsilon92@gmail.com>"]
 edition = "2018"
 description = "bindings for https://github.com/plotly/plotly.js"
