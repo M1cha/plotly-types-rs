@@ -63,7 +63,7 @@ impl RustType {
             Self::Color | Self::String | Self::SubplotId => 1,
             Self::Flaglist => 1,
             Self::Colorlist => 1,
-            Self::ColorScale => 2,
+            Self::ColorScale => 1,
             Self::DataArray => 1,
             Self::InfoArray => 1,
             _ => 0,
@@ -126,12 +126,7 @@ impl RustType {
             Self::Boolean => write!(&mut v, "bool").unwrap(),
             Self::ColorScale => {
                 let lifetimes = lifetimes.unwrap();
-                write!(
-                    &mut v,
-                    "crate::ColorScale<{}, {}>",
-                    lifetimes[0], lifetimes[1]
-                )
-                .unwrap();
+                write!(&mut v, "crate::ColorScale<{}>", lifetimes[0]).unwrap();
             }
             Self::DataArray => {
                 let lifetimes = lifetimes.unwrap();
@@ -162,8 +157,8 @@ fn make_lt_and_g(
     let mut type_lifetimes = Vec::with_capacity(num_lifetimes);
     let mut type_generics = Vec::with_capacity(num_generics);
 
-    for i in 0..type_lifetimes.capacity() {
-        type_lifetimes.push(format!("'{}_l{}", attrname, i));
+    for _ in 0..type_lifetimes.capacity() {
+        type_lifetimes.push("'a".to_string());
     }
 
     for i in 0..type_generics.capacity() {
@@ -221,7 +216,9 @@ fn gen_struct<F: std::io::Write>(
             )?;
             writeln!(&mut fields, "    {}: Option<{}>,", attrname, typestr)?;
 
-            lifetimes.extend_from_slice(&type_lifetimes);
+            if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
+                lifetimes.push("'a".to_string());
+            }
             generics.extend_from_slice(&type_generics);
 
             if let Some(description) = attr["description"].as_str() {
@@ -278,7 +275,9 @@ fn gen_struct<F: std::io::Write>(
                 attrname, typestr
             )?;
 
-            lifetimes.extend_from_slice(&type_lifetimes);
+            if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
+                lifetimes.push("'a".to_string());
+            }
             generics.extend_from_slice(&type_generics);
 
             if let Some(description) = attr["description"].as_str() {

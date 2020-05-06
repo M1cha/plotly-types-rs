@@ -33,9 +33,9 @@ pub enum ColorScaleName {
 
 #[derive(Serialize)]
 #[serde(untagged)]
-pub enum ColorScale<'a, 's> {
+pub enum ColorScale<'a> {
     Name(ColorScaleName),
-    Array(&'a [ColorScaleElem<'s>]),
+    Array(&'a [ColorScaleElem<'a>]),
 }
 
 #[derive(Serialize)]
