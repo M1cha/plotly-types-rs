@@ -4,9 +4,6 @@ use convert_case::{Case, Casing};
 use error_rules::*;
 use std::io::Write;
 
-const PLOTLY_SCHEMA_URL: &str =
-    concat!("https://raw.githubusercontent.com/plotly/plotly.js/v1.54.0/dist/plot-schema.json");
-
 #[derive(Debug, Error)]
 enum Error {
     #[error_from]
@@ -339,11 +336,18 @@ fn gen_struct<F: std::io::Write>(
 }
 
 fn main() -> Result<(), Error> {
+    let pkg_version = env!("CARGO_PKG_VERSION");
+    let plotly_version = pkg_version.splitn(2, "-").next().unwrap();
+    let schema_url = format!(
+        "https://raw.githubusercontent.com/plotly/plotly.js/v{}/dist/plot-schema.json",
+        plotly_version
+    );
+
     let local_schema_path = std::path::Path::new("plot-schema.json");
     let schema = if local_schema_path.exists() {
         std::fs::read_to_string(local_schema_path)?
     } else {
-        reqwest::blocking::get(PLOTLY_SCHEMA_URL)?.text()?
+        reqwest::blocking::get(&schema_url)?.text()?
     };
     let schema = json::parse(&schema)?;
 
