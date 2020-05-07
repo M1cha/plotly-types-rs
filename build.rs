@@ -178,6 +178,12 @@ fn gen_struct<F: std::io::Write>(
     let mut lifetimes: Vec<String> = Vec::new();
     let mut generics: Vec<String> = Vec::new();
 
+    let namespace = if let Some(modname) = &modname {
+        format!("{}::", modname)
+    } else {
+        "".to_string()
+    };
+
     for (attrname_js, attr) in attrs.entries() {
         if attrname_js == "box" {
             continue;
@@ -204,7 +210,61 @@ fn gen_struct<F: std::io::Write>(
             let rusttype = RustType::from(valtype);
             let (type_lifetimes, type_generics) =
                 make_lt_and_g(&attrname, rusttype.num_lifetimes(), rusttype.num_generics());
-            let typestr = rusttype.to_str("usize", Some(&type_lifetimes), Some(&type_generics));
+
+            let subtypename = match rusttype {
+                RustType::Enumerated => {
+                    let subtypename = attrname.to_case(Case::Pascal);
+
+                    match subtypename.as_str() {
+                        "Operation" | "Scaleanchor" => break,
+                        _ => (),
+                    }
+
+                    writeln!(&mut modcode, "#[derive(Serialize)]")?;
+                    writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
+
+                    for val in attr["values"].members() {
+                        let mut handle_str = |s: &str| -> Result<(), Error> {
+                            if s.len() == 0 {
+                                return Ok(());
+                            }
+                            let s = match s {
+                                "e" => "SmallE",
+                                "E" => "BigE",
+                                "<=" => "LE",
+                                ">=" => "GE",
+                                "=" => "EQ",
+                                ">" => "GT",
+                                "<" => "LT",
+                                _ => s,
+                            };
+
+                            let s = s.replace("+", "And");
+                            let s = s.replace("|", "Or");
+                            let s = s.replace("/", "Slash");
+                            let s = s.replace("\\", "Backslash");
+
+                            writeln!(&mut modcode, "    #[serde(rename = \"{}\")]", s)?;
+                            writeln!(&mut modcode, "    {},", s.to_case(Case::Pascal))?;
+
+                            Ok(())
+                        };
+                        match val {
+                            json::JsonValue::Short(s) => handle_str(s)?,
+                            json::JsonValue::String(s) => handle_str(s)?,
+                            _ => (),
+                        }
+                    }
+
+                    writeln!(&mut modcode, "}}")?;
+
+                    format!("{}{}", namespace, subtypename)
+                }
+                _ => "usize".to_string(),
+            };
+
+            let typestr =
+                rusttype.to_str(&subtypename, Some(&type_lifetimes), Some(&type_generics));
 
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
             writeln!(
@@ -254,11 +314,6 @@ fn gen_struct<F: std::io::Write>(
             let params_joined = [&type_lifetimes[..], &type_generics[..]]
                 .concat()
                 .join(", ");
-            let namespace = if let Some(modname) = &modname {
-                format!("{}::", modname)
-            } else {
-                "".to_string()
-            };
             let typestr = format!("{}{}<{}>", namespace, substructname, params_joined);
 
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
