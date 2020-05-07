@@ -40,7 +40,7 @@ pub enum ColorScale<'a> {
 
 pub type Any = serde_json::Value;
 
-pub struct IsEmpty<T> {
+struct IsEmpty<T> {
     pub data: T,
     pub is_empty: bool,
 }
