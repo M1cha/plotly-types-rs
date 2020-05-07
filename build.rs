@@ -108,14 +108,14 @@ impl RustType {
             }
             Self::Flaglist => {
                 let lifetimes = lifetimes.unwrap();
-                write!(&mut v, "&{} {}", lifetimes[0], subtype).unwrap();
+                write!(&mut v, "crate::Flaglist<{}>", lifetimes[0]).unwrap();
             }
             Self::Colorlist => {
                 let lifetimes = lifetimes.unwrap();
                 write!(&mut v, "&{} [&{} str]", lifetimes[0], lifetimes[0]).unwrap();
             }
             Self::Angle => {
-                write!(&mut v, "f64").unwrap();
+                write!(&mut v, "crate::Angle").unwrap();
             }
             Self::Any => {
                 write!(&mut v, "crate::Any").unwrap();
@@ -132,7 +132,7 @@ impl RustType {
             }
             Self::InfoArray => {
                 let lifetimes = lifetimes.unwrap();
-                write!(&mut v, "&{} {}", lifetimes[0], subtype).unwrap();
+                write!(&mut v, "&{} crate::InfoArray", lifetimes[0]).unwrap();
             }
             Self::Integer => {
                 write!(&mut v, "u64").unwrap();

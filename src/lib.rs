@@ -39,6 +39,9 @@ pub enum ColorScale<'a> {
 }
 
 pub type Any = serde_json::Value;
+pub type InfoArray = Vec<serde_json::Value>;
+pub type Flaglist<'a> = &'a str;
+pub type Angle = f64;
 
 struct IsEmpty<T> {
     pub data: T,
