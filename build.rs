@@ -87,16 +87,7 @@ impl RustType {
     }
 
     pub fn num_generics(&self) -> usize {
-        match self.plotly_type {
-            PlotlyType::DataArray => {
-                if self.subtype.is_some() {
-                    0
-                } else {
-                    1
-                }
-            }
-            _ => 0,
-        }
+        0
     }
 
     pub fn to_str(&self, lifetimes: Option<&[String]>, generics: Option<&[String]>) -> String {
@@ -147,11 +138,10 @@ impl RustType {
             }
             PlotlyType::DataArray => {
                 let lifetimes = lifetimes.unwrap();
-                let generics = generics.unwrap();
                 let elemtype = if let Some(subtype) = &self.subtype {
                     subtype
                 } else {
-                    &generics[0]
+                    "f64"
                 };
                 write!(&mut v, "&{} [{}]", lifetimes[0], elemtype).unwrap();
             }
