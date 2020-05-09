@@ -14,7 +14,7 @@ enum Error {
     Io(std::io::Error),
 }
 
-enum RustType {
+enum PlotlyType {
     Angle,
     Any,
     Boolean,
@@ -31,55 +31,75 @@ enum RustType {
     SubplotId,
 }
 
-impl From<&str> for RustType {
-    fn from(s: &str) -> Self {
-        match s {
-            "angle" => Self::Angle,
-            "any" => Self::Any,
-            "boolean" => Self::Boolean,
-            "color" => Self::Color,
-            "colorlist" => Self::Colorlist,
-            "colorscale" => Self::ColorScale,
-            "data_array" => Self::DataArray,
-            "enumerated" => Self::Enumerated,
-            "flaglist" => Self::Flaglist,
-            "info_array" => Self::InfoArray,
-            "integer" => Self::Integer,
-            "number" => Self::Number,
-            "string" => Self::String,
-            "subplotid" => Self::SubplotId,
-            _ => panic!("unsupported type: {}", s),
-        }
-    }
+struct RustType {
+    plotly_type: PlotlyType,
+    subtype: Option<String>,
 }
 
 impl RustType {
+    fn new(s: &str, subtype: Option<String>) -> Self {
+        let plotly_type = match s {
+            "angle" => PlotlyType::Angle,
+            "any" => PlotlyType::Any,
+            "boolean" => PlotlyType::Boolean,
+            "color" => PlotlyType::Color,
+            "colorlist" => PlotlyType::Colorlist,
+            "colorscale" => PlotlyType::ColorScale,
+            "data_array" => PlotlyType::DataArray,
+            "enumerated" => PlotlyType::Enumerated,
+            "flaglist" => PlotlyType::Flaglist,
+            "info_array" => PlotlyType::InfoArray,
+            "integer" => PlotlyType::Integer,
+            "number" => PlotlyType::Number,
+            "string" => PlotlyType::String,
+            "subplotid" => PlotlyType::SubplotId,
+            _ => panic!("unsupported type: {}", s),
+        };
+
+        Self {
+            plotly_type,
+            subtype,
+        }
+    }
+
     pub fn num_lifetimes(&self) -> usize {
-        match self {
+        match self.plotly_type {
             // strings
-            Self::Color | Self::String | Self::SubplotId => 1,
-            Self::Flaglist => 1,
-            Self::Colorlist => 1,
-            Self::ColorScale => 1,
-            Self::DataArray => 1,
-            Self::InfoArray => 1,
+            PlotlyType::Color | PlotlyType::String | PlotlyType::SubplotId => 1,
+            PlotlyType::Flaglist => 1,
+            PlotlyType::Colorlist => 1,
+            PlotlyType::ColorScale => 1,
+            PlotlyType::DataArray => {
+                if let Some(subtype) = &self.subtype {
+                    // TODO: this is a hack
+                    if subtype.starts_with("&") {
+                        2
+                    } else {
+                        1
+                    }
+                } else {
+                    1
+                }
+            }
+            PlotlyType::InfoArray => 1,
             _ => 0,
         }
     }
 
     pub fn num_generics(&self) -> usize {
-        match self {
-            Self::DataArray => 1,
+        match self.plotly_type {
+            PlotlyType::DataArray => {
+                if self.subtype.is_some() {
+                    0
+                } else {
+                    1
+                }
+            }
             _ => 0,
         }
     }
 
-    pub fn to_str(
-        &self,
-        subtype: &str,
-        lifetimes: Option<&[String]>,
-        generics: Option<&[String]>,
-    ) -> String {
+    pub fn to_str(&self, lifetimes: Option<&[String]>, generics: Option<&[String]>) -> String {
         let mut v: Vec<u8> = Vec::new();
 
         let num_lifetimes = self.num_lifetimes();
@@ -97,47 +117,52 @@ impl RustType {
             assert_eq!(num_generics, 0);
         }
 
-        match self {
+        match self.plotly_type {
             // strings
-            Self::Color | Self::String | Self::SubplotId => {
+            PlotlyType::Color | PlotlyType::String | PlotlyType::SubplotId => {
                 let lifetimes = lifetimes.unwrap();
                 write!(&mut v, "&{} str", lifetimes[0]).unwrap();
             }
-            Self::Enumerated => {
-                write!(&mut v, "{}", subtype).unwrap();
+            PlotlyType::Enumerated => {
+                write!(&mut v, "{}", self.subtype.as_ref().unwrap()).unwrap();
             }
-            Self::Flaglist => {
+            PlotlyType::Flaglist => {
                 let lifetimes = lifetimes.unwrap();
                 write!(&mut v, "crate::Flaglist<{}>", lifetimes[0]).unwrap();
             }
-            Self::Colorlist => {
+            PlotlyType::Colorlist => {
                 let lifetimes = lifetimes.unwrap();
                 write!(&mut v, "&{} [&{} str]", lifetimes[0], lifetimes[0]).unwrap();
             }
-            Self::Angle => {
+            PlotlyType::Angle => {
                 write!(&mut v, "crate::Angle").unwrap();
             }
-            Self::Any => {
+            PlotlyType::Any => {
                 write!(&mut v, "crate::Any").unwrap();
             }
-            Self::Boolean => write!(&mut v, "bool").unwrap(),
-            Self::ColorScale => {
+            PlotlyType::Boolean => write!(&mut v, "bool").unwrap(),
+            PlotlyType::ColorScale => {
                 let lifetimes = lifetimes.unwrap();
                 write!(&mut v, "crate::ColorScale<{}>", lifetimes[0]).unwrap();
             }
-            Self::DataArray => {
+            PlotlyType::DataArray => {
                 let lifetimes = lifetimes.unwrap();
                 let generics = generics.unwrap();
-                write!(&mut v, "&{} [{}]", lifetimes[0], generics[0]).unwrap();
+                let elemtype = if let Some(subtype) = &self.subtype {
+                    subtype
+                } else {
+                    &generics[0]
+                };
+                write!(&mut v, "&{} [{}]", lifetimes[0], elemtype).unwrap();
             }
-            Self::InfoArray => {
+            PlotlyType::InfoArray => {
                 let lifetimes = lifetimes.unwrap();
                 write!(&mut v, "&{} crate::InfoArray", lifetimes[0]).unwrap();
             }
-            Self::Integer => {
+            PlotlyType::Integer => {
                 write!(&mut v, "u64").unwrap();
             }
-            Self::Number => {
+            PlotlyType::Number => {
                 write!(&mut v, "f64").unwrap();
             }
         }
@@ -163,6 +188,15 @@ fn make_lt_and_g(
     }
 
     (type_lifetimes, type_generics)
+}
+
+fn get_dataarray_type(attrname: &str) -> Option<String> {
+    match attrname {
+        "ticktext" => Some("&'a str".to_string()),
+        "categoryarray" => Some("usize".to_string()),
+        "ids" => Some("&'a str".to_string()),
+        _ => None,
+    }
 }
 
 fn gen_struct<F: std::io::Write>(
@@ -207,12 +241,8 @@ fn gen_struct<F: std::io::Write>(
         }
 
         if let Some(valtype) = attr["valType"].as_str() {
-            let rusttype = RustType::from(valtype);
-            let (type_lifetimes, type_generics) =
-                make_lt_and_g(&attrname, rusttype.num_lifetimes(), rusttype.num_generics());
-
-            let subtypename = match rusttype {
-                RustType::Enumerated => {
+            let subtypename = match valtype {
+                "enumerated" => {
                     let subtypename = attrname.to_case(Case::Pascal);
 
                     match subtypename.as_str() {
@@ -258,13 +288,17 @@ fn gen_struct<F: std::io::Write>(
 
                     writeln!(&mut modcode, "}}")?;
 
-                    format!("{}{}", namespace, subtypename)
+                    Some(format!("{}{}", namespace, subtypename))
                 }
-                _ => "usize".to_string(),
+                "data_array" => get_dataarray_type(&attrname),
+                _ => None,
             };
 
-            let typestr =
-                rusttype.to_str(&subtypename, Some(&type_lifetimes), Some(&type_generics));
+            let rusttype = RustType::new(valtype, subtypename);
+            let (type_lifetimes, type_generics) =
+                make_lt_and_g(&attrname, rusttype.num_lifetimes(), rusttype.num_generics());
+
+            let typestr = rusttype.to_str(Some(&type_lifetimes), Some(&type_generics));
 
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
             writeln!(
