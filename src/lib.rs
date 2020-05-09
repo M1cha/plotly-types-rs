@@ -73,3 +73,69 @@ impl<T> IsEmpty<T> {
 }
 
 include!(concat!(env!("OUT_DIR"), "/mod.rs"));
+mod error;
+pub use error::Error;
+
+pub struct Plot<'a, W, D> {
+    w: W,
+    graph_div: D,
+    layout: &'a layout::Layout<'a>,
+    config: &'a config::Config<'a>,
+    ntraces: usize,
+}
+
+impl<'a, W, D> Plot<'a, W, D>
+where
+    W: std::io::Write,
+    D: AsRef<str>,
+{
+    pub fn new(
+        mut w: W,
+        graph_div: D,
+        layout: &'a layout::Layout,
+        config: &'a config::Config,
+    ) -> Result<Self, Error> {
+        write!(w, "var data = [")?;
+        Ok(Self {
+            w,
+            graph_div,
+            layout,
+            config,
+            ntraces: 0,
+        })
+    }
+
+    pub fn add_trace<T>(&mut self, trace: T) -> Result<(), Error>
+    where
+        T: serde::Serialize,
+    {
+        if self.ntraces > 0 {
+            write!(self.w, ", ")?;
+        }
+
+        serde_json::to_writer(&mut self.w, &trace)?;
+        self.ntraces += 1;
+
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<(), Error> {
+        writeln!(self.w, "];")?;
+
+        write!(self.w, "var layout = ")?;
+        serde_json::to_writer(&mut self.w, self.layout)?;
+        writeln!(self.w, ";")?;
+
+        write!(self.w, "var config = ")?;
+        serde_json::to_writer(&mut self.w, self.config)?;
+        writeln!(self.w, ";")?;
+
+        writeln!(
+            self.w,
+            "Plotly.newPlot(\"{}\", data, layout, config);",
+            self.graph_div.as_ref()
+        )?;
+
+        Ok(())
+    }
+}
