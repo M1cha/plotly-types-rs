@@ -505,6 +505,16 @@ fn main() -> Result<(), Error> {
     writeln!(&mut f_mod, "pub mod config;")?;
     writeln!(&mut f_mod, "pub mod animation;")?;
 
+    writeln!(
+        &mut f_mod,
+        "/// https CDN URL to the plotly version that was used to build this crate"
+    )?;
+    writeln!(
+        &mut f_mod,
+        "pub static URL_CDN: &'static str = \"https://cdn.plot.ly/plotly-{}.min.js\";",
+        plotly_version
+    )?;
+
     println!("cargo:rerun-if-changed=build.rs");
 
     Ok(())
