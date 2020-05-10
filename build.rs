@@ -203,14 +203,107 @@ fn str2enum(s: &str) -> String {
 
     let s = s.replace("+", "And");
     let s = s.replace("|", "Or");
+    let s = s.replace("!", "Not");
+    let s = s.replace("=", "Equal");
     let s = s.replace("/", "Slash");
     let s = s.replace("\\", "Backslash");
+    let s = s.replace("^", "Caret");
+    let s = s.replace("[", "OSqBr");
+    let s = s.replace("]", "CSqBr");
+    let s = s.replace("(", "OBr");
+    let s = s.replace(")", "CBr");
+    let s = s.replace("{", "OCrlBr");
+    let s = s.replace("}", "CCrlBr");
+    let s = s.replace("?", "QM");
+    let s = s.replace("$", "Dollar");
 
     s.to_case(Case::Pascal)
 }
 
 fn escape_str(s: &str) -> String {
     s.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
+fn handle_enumerated<W>(
+    attrname: &str,
+    attr: &json::JsonValue,
+    mut modcode: W,
+) -> Result<String, Error>
+where
+    W: std::io::Write,
+{
+    let subtypename = attrname.to_case(Case::Pascal);
+    let mut enumimpl: Vec<u8> = Vec::new();
+    writeln!(
+        &mut enumimpl,
+        "impl serde::Serialize for {} {{",
+        subtypename
+    )?;
+    writeln!(&mut enumimpl, "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{")?;
+    writeln!(&mut enumimpl, "        match self {{")?;
+
+    writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
+
+    for val in attr["values"].members() {
+        let mut handle_str = |namejs: &str| -> Result<Option<String>, Error> {
+            if namejs.len() == 0 {
+                return Ok(None);
+            }
+            let namerust = str2enum(namejs);
+
+            writeln!(
+                &mut enumimpl,
+                "           Self::{} => serializer.serialize_str(\"{}\"),",
+                namerust,
+                escape_str(namejs)
+            )?;
+
+            Ok(Some(namerust))
+        };
+
+        let namerust = match val {
+            json::JsonValue::Short(v) => handle_str(v)?,
+            json::JsonValue::String(v) => handle_str(v)?,
+            json::JsonValue::Boolean(v) => {
+                let namejs = if *v { "true" } else { "false" }.to_string();
+                let namerust = if *v { "True" } else { "False" }.to_string();
+                writeln!(
+                    &mut enumimpl,
+                    "           Self::{} => serializer.serialize_bool({}),",
+                    namerust, namejs
+                )?;
+                Some(namerust)
+            }
+            json::JsonValue::Number(n) => {
+                let (positive, mantissa, exponent) = n.as_parts();
+                assert_eq!(exponent, 0);
+
+                let sign = if positive { "" } else { "Neg" };
+                let namerust = format!("Num{}{}", sign, mantissa);
+                writeln!(
+                    &mut enumimpl,
+                    "           Self::{} => serializer.serialize_u64({}),",
+                    namerust, mantissa
+                )?;
+
+                Some(namerust)
+            }
+            _ => panic!("unsupported enum vale {:?}", val),
+        };
+
+        if let Some(namerust) = namerust {
+            writeln!(&mut modcode, "    {},", namerust)?;
+        }
+    }
+
+    writeln!(&mut enumimpl, "        }}")?;
+    writeln!(&mut enumimpl, "    }}")?;
+    writeln!(&mut enumimpl, "}}")?;
+
+    writeln!(&mut modcode, "}}")?;
+    modcode.write(&enumimpl)?;
+
+    Ok(subtypename)
 }
 
 fn gen_struct<F: std::io::Write>(
@@ -256,86 +349,11 @@ fn gen_struct<F: std::io::Write>(
 
         if let Some(valtype) = attr["valType"].as_str() {
             let subtypename = match valtype {
-                "enumerated" => {
-                    let subtypename = attrname.to_case(Case::Pascal);
-                    match subtypename.as_str() {
-                        "Operation" | "Scaleanchor" => break,
-                        _ => (),
-                    }
-
-                    let mut enumimpl: Vec<u8> = Vec::new();
-                    writeln!(
-                        &mut enumimpl,
-                        "impl serde::Serialize for {} {{",
-                        subtypename
-                    )?;
-                    writeln!(&mut enumimpl, "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{")?;
-                    writeln!(&mut enumimpl, "        match self {{")?;
-
-                    //writeln!(&mut modcode, "#[derive(Serialize)]")?;
-                    writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
-
-                    for val in attr["values"].members() {
-                        let mut handle_str = |namejs: &str| -> Result<Option<String>, Error> {
-                            if namejs.len() == 0 {
-                                return Ok(None);
-                            }
-                            let namerust = str2enum(namejs);
-
-                            writeln!(
-                                &mut enumimpl,
-                                "           Self::{} => serializer.serialize_str(\"{}\"),",
-                                namerust,
-                                escape_str(namejs)
-                            )?;
-
-                            Ok(Some(namerust))
-                        };
-
-                        let namerust = match val {
-                            json::JsonValue::Short(v) => handle_str(v)?,
-                            json::JsonValue::String(v) => handle_str(v)?,
-                            json::JsonValue::Boolean(v) => {
-                                let namejs = if *v { "true" } else { "false" }.to_string();
-                                let namerust = if *v { "True" } else { "False" }.to_string();
-                                writeln!(
-                                    &mut enumimpl,
-                                    "           Self::{} => serializer.serialize_bool({}),",
-                                    namerust, namejs
-                                )?;
-                                Some(namerust)
-                            }
-                            json::JsonValue::Number(n) => {
-                                let (positive, mantissa, exponent) = n.as_parts();
-                                assert_eq!(exponent, 0);
-
-                                let sign = if positive { "" } else { "Neg" };
-                                let namerust = format!("Num{}{}", sign, mantissa);
-                                writeln!(
-                                    &mut enumimpl,
-                                    "           Self::{} => serializer.serialize_u64({}),",
-                                    namerust, mantissa
-                                )?;
-
-                                Some(namerust)
-                            }
-                            _ => panic!("unsupported enum vale {:?}", val),
-                        };
-
-                        if let Some(namerust) = namerust {
-                            writeln!(&mut modcode, "    {},", namerust)?;
-                        }
-                    }
-
-                    writeln!(&mut enumimpl, "        }}")?;
-                    writeln!(&mut enumimpl, "    }}")?;
-                    writeln!(&mut enumimpl, "}}")?;
-
-                    writeln!(&mut modcode, "}}")?;
-                    modcode.write(&enumimpl)?;
-
-                    Some(format!("{}{}", namespace, subtypename))
-                }
+                "enumerated" => Some(format!(
+                    "{}{}",
+                    namespace,
+                    handle_enumerated(&attrname, attr, &mut modcode)?
+                )),
                 "data_array" => get_dataarray_type(&attrname),
                 _ => None,
             };
