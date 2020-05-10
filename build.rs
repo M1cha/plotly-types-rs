@@ -611,6 +611,10 @@ fn gen_struct<F: std::io::Write>(
 
         if let Some(description) = attr["description"].as_str() {
             writeln!(&mut code, "    /// {}", description)?;
+            writeln!(&mut code, "    ///")?;
+        }
+        if attr.has_key("dflt") {
+            writeln!(&mut code, "    /// default: `{}`", attr["dflt"])?;
         }
         if use_isempty {
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
