@@ -189,6 +189,30 @@ fn get_dataarray_type(attrname: &str) -> Option<String> {
     }
 }
 
+fn str2enum(s: &str) -> String {
+    let s = match s {
+        "e" => "SmallE",
+        "E" => "BigE",
+        "<=" => "LE",
+        ">=" => "GE",
+        "=" => "EQ",
+        ">" => "GT",
+        "<" => "LT",
+        _ => s,
+    };
+
+    let s = s.replace("+", "And");
+    let s = s.replace("|", "Or");
+    let s = s.replace("/", "Slash");
+    let s = s.replace("\\", "Backslash");
+
+    s.to_case(Case::Pascal)
+}
+
+fn escape_str(s: &str) -> String {
+    s.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
 fn gen_struct<F: std::io::Write>(
     f: &mut F,
     modname: Option<&str>,
@@ -234,49 +258,81 @@ fn gen_struct<F: std::io::Write>(
             let subtypename = match valtype {
                 "enumerated" => {
                     let subtypename = attrname.to_case(Case::Pascal);
-
                     match subtypename.as_str() {
                         "Operation" | "Scaleanchor" => break,
                         _ => (),
                     }
 
-                    writeln!(&mut modcode, "#[derive(Serialize)]")?;
+                    let mut enumimpl: Vec<u8> = Vec::new();
+                    writeln!(
+                        &mut enumimpl,
+                        "impl serde::Serialize for {} {{",
+                        subtypename
+                    )?;
+                    writeln!(&mut enumimpl, "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{")?;
+                    writeln!(&mut enumimpl, "        match self {{")?;
+
+                    //writeln!(&mut modcode, "#[derive(Serialize)]")?;
                     writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
 
                     for val in attr["values"].members() {
-                        let mut handle_str = |s: &str| -> Result<(), Error> {
-                            if s.len() == 0 {
-                                return Ok(());
+                        let mut handle_str = |namejs: &str| -> Result<Option<String>, Error> {
+                            if namejs.len() == 0 {
+                                return Ok(None);
                             }
-                            let s = match s {
-                                "e" => "SmallE",
-                                "E" => "BigE",
-                                "<=" => "LE",
-                                ">=" => "GE",
-                                "=" => "EQ",
-                                ">" => "GT",
-                                "<" => "LT",
-                                _ => s,
-                            };
+                            let namerust = str2enum(namejs);
 
-                            let s = s.replace("+", "And");
-                            let s = s.replace("|", "Or");
-                            let s = s.replace("/", "Slash");
-                            let s = s.replace("\\", "Backslash");
+                            writeln!(
+                                &mut enumimpl,
+                                "           Self::{} => serializer.serialize_str(\"{}\"),",
+                                namerust,
+                                escape_str(namejs)
+                            )?;
 
-                            writeln!(&mut modcode, "    #[serde(rename = \"{}\")]", s)?;
-                            writeln!(&mut modcode, "    {},", s.to_case(Case::Pascal))?;
-
-                            Ok(())
+                            Ok(Some(namerust))
                         };
-                        match val {
-                            json::JsonValue::Short(s) => handle_str(s)?,
-                            json::JsonValue::String(s) => handle_str(s)?,
-                            _ => (),
+
+                        let namerust = match val {
+                            json::JsonValue::Short(v) => handle_str(v)?,
+                            json::JsonValue::String(v) => handle_str(v)?,
+                            json::JsonValue::Boolean(v) => {
+                                let namejs = if *v { "true" } else { "false" }.to_string();
+                                let namerust = if *v { "True" } else { "False" }.to_string();
+                                writeln!(
+                                    &mut enumimpl,
+                                    "           Self::{} => serializer.serialize_bool({}),",
+                                    namerust, namejs
+                                )?;
+                                Some(namerust)
+                            }
+                            json::JsonValue::Number(n) => {
+                                let (positive, mantissa, exponent) = n.as_parts();
+                                assert_eq!(exponent, 0);
+
+                                let sign = if positive { "" } else { "Neg" };
+                                let namerust = format!("Num{}{}", sign, mantissa);
+                                writeln!(
+                                    &mut enumimpl,
+                                    "           Self::{} => serializer.serialize_u64({}),",
+                                    namerust, mantissa
+                                )?;
+
+                                Some(namerust)
+                            }
+                            _ => panic!("unsupported enum vale {:?}", val),
+                        };
+
+                        if let Some(namerust) = namerust {
+                            writeln!(&mut modcode, "    {},", namerust)?;
                         }
                     }
 
+                    writeln!(&mut enumimpl, "        }}")?;
+                    writeln!(&mut enumimpl, "    }}")?;
+                    writeln!(&mut enumimpl, "}}")?;
+
                     writeln!(&mut modcode, "}}")?;
+                    modcode.write(&enumimpl)?;
 
                     Some(format!("{}{}", namespace, subtypename))
                 }
@@ -378,6 +434,7 @@ fn gen_struct<F: std::io::Write>(
     let params_joined = [&lifetimes[..], &generics[..]].concat().join(", ");
 
     if modname.is_none() {
+        writeln!(f, "#[allow(unused_imports)]")?;
         writeln!(f, "use serde::Serialize;")?;
     }
     writeln!(f)?;
@@ -401,6 +458,7 @@ fn gen_struct<F: std::io::Write>(
     if modcode.len() > 0 {
         if let Some(modname) = &modname {
             writeln!(f, "pub mod {} {{", modname)?;
+            writeln!(f, "#[allow(unused_imports)]")?;
             writeln!(f, "use serde::Serialize;")?;
         }
 
