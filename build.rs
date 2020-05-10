@@ -66,7 +66,6 @@ impl RustType {
         match self.plotly_type {
             // strings
             PlotlyType::Color | PlotlyType::String | PlotlyType::SubplotId => 1,
-            PlotlyType::Flaglist => 1,
             PlotlyType::Colorlist => 1,
             PlotlyType::ColorScale => 1,
             PlotlyType::DataArray => {
@@ -118,8 +117,7 @@ impl RustType {
                 write!(&mut v, "{}", self.subtype.as_ref().unwrap()).unwrap();
             }
             PlotlyType::Flaglist => {
-                let lifetimes = lifetimes.unwrap();
-                write!(&mut v, "crate::Flaglist<{}>", lifetimes[0]).unwrap();
+                write!(&mut v, "{}", self.subtype.as_ref().unwrap()).unwrap();
             }
             PlotlyType::Colorlist => {
                 let lifetimes = lifetimes.unwrap();
@@ -224,27 +222,59 @@ fn escape_str(s: &str) -> String {
     s.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
-fn handle_enumerated<W>(
-    attrname: &str,
-    attr: &json::JsonValue,
-    mut modcode: W,
-) -> Result<String, Error>
-where
-    W: std::io::Write,
-{
-    let subtypename = attrname.to_case(Case::Pascal);
-    let mut enumimpl: Vec<u8> = Vec::new();
+fn enum_impl_start<W: std::io::Write>(
+    mut w: W,
+    subtypename: &str,
+    add_lifetime: bool,
+) -> Result<(), Error> {
+    let ltstr = if add_lifetime { "<'a>" } else { "" };
+    writeln!(&mut w, "impl{} {}{} {{", ltstr, subtypename, ltstr)?;
+
+    Ok(())
+}
+
+fn enum_impl_end<W: std::io::Write>(mut w: W) -> Result<(), Error> {
+    writeln!(&mut w, "}}")?;
+
+    Ok(())
+}
+
+fn impl_serialize_start<W: std::io::Write>(
+    mut w: W,
+    subtypename: &str,
+    add_lifetime: bool,
+) -> Result<(), Error> {
+    let ltstr = if add_lifetime { "<'a>" } else { "" };
     writeln!(
-        &mut enumimpl,
-        "impl serde::Serialize for {} {{",
-        subtypename
+        &mut w,
+        "impl{} serde::Serialize for {}{} {{",
+        ltstr, subtypename, ltstr
     )?;
-    writeln!(&mut enumimpl, "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{")?;
-    writeln!(&mut enumimpl, "        match self {{")?;
 
-    writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
+    writeln!(&mut w, "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{")?;
 
-    for val in attr["values"].members() {
+    Ok(())
+}
+
+fn impl_serialize_end<W: std::io::Write>(mut w: W) -> Result<(), Error> {
+    writeln!(&mut w, "    }}")?;
+    writeln!(&mut w, "}}")?;
+
+    Ok(())
+}
+
+fn gen_enum<W1, W2>(
+    mut modcode: W1,
+    mut serimpl: W2,
+    values: &json::JsonValue,
+) -> Result<usize, Error>
+where
+    W1: std::io::Write,
+    W2: std::io::Write,
+{
+    let mut nmembers = 0;
+
+    for val in values.members() {
         let mut handle_str = |namejs: &str| -> Result<Option<String>, Error> {
             if namejs.len() == 0 {
                 return Ok(None);
@@ -252,8 +282,8 @@ where
             let namerust = str2enum(namejs);
 
             writeln!(
-                &mut enumimpl,
-                "           Self::{} => serializer.serialize_str(\"{}\"),",
+                &mut serimpl,
+                "            Self::{} => serializer.serialize_str(\"{}\"),",
                 namerust,
                 escape_str(namejs)
             )?;
@@ -268,8 +298,8 @@ where
                 let namejs = if *v { "true" } else { "false" }.to_string();
                 let namerust = if *v { "True" } else { "False" }.to_string();
                 writeln!(
-                    &mut enumimpl,
-                    "           Self::{} => serializer.serialize_bool({}),",
+                    &mut serimpl,
+                    "            Self::{} => serializer.serialize_bool({}),",
                     namerust, namejs
                 )?;
                 Some(namerust)
@@ -281,8 +311,8 @@ where
                 let sign = if positive { "" } else { "Neg" };
                 let namerust = format!("Num{}{}", sign, mantissa);
                 writeln!(
-                    &mut enumimpl,
-                    "           Self::{} => serializer.serialize_u64({}),",
+                    &mut serimpl,
+                    "            Self::{} => serializer.serialize_u64({}),",
                     namerust, mantissa
                 )?;
 
@@ -293,15 +323,174 @@ where
 
         if let Some(namerust) = namerust {
             writeln!(&mut modcode, "    {},", namerust)?;
+            nmembers += 1;
         }
     }
 
-    writeln!(&mut enumimpl, "        }}")?;
-    writeln!(&mut enumimpl, "    }}")?;
-    writeln!(&mut enumimpl, "}}")?;
+    Ok(nmembers)
+}
 
+fn handle_enumerated<W>(
+    attrname: &str,
+    attr: &json::JsonValue,
+    mut modcode: W,
+) -> Result<String, Error>
+where
+    W: std::io::Write,
+{
+    let subtypename = attrname.to_case(Case::Pascal);
+    let mut serimpl: Vec<u8> = Vec::new();
+
+    impl_serialize_start(&mut serimpl, &subtypename, false)?;
+    writeln!(&mut serimpl, "        match self {{")?;
+
+    writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
+    gen_enum(&mut modcode, &mut serimpl, &attr["values"])?;
     writeln!(&mut modcode, "}}")?;
-    modcode.write(&enumimpl)?;
+
+    writeln!(&mut serimpl, "        }}")?;
+    impl_serialize_end(&mut serimpl)?;
+    modcode.write(&serimpl)?;
+
+    Ok(subtypename)
+}
+
+fn roundup(a: usize, b: usize) -> usize {
+    (a + (b - 1)) & !(b - 1)
+}
+
+fn handle_flaglist<W>(
+    attrname: &str,
+    attr: &json::JsonValue,
+    mut modcode: W,
+) -> Result<String, Error>
+where
+    W: std::io::Write,
+{
+    let subtypename = attrname.to_case(Case::Pascal);
+    let subtypeflagsname = format!("{}Flags", subtypename);
+    let flags = match &attr["flags"] {
+        json::JsonValue::Array(v) => v,
+        _ => panic!("flags is not an array"),
+    };
+    let nbits = flags.len();
+    let nbytes = roundup(nbits, 8) / 8;
+
+    writeln!(&mut modcode, "#[derive(Default)]")?;
+    writeln!(
+        &mut modcode,
+        "pub struct {} ([u8; {}]);",
+        subtypeflagsname, nbytes
+    )?;
+    enum_impl_start(&mut modcode, &subtypeflagsname, false)?;
+
+    let mut serimpl: Vec<u8> = Vec::new();
+    impl_serialize_start(&mut serimpl, &subtypeflagsname, false)?;
+    writeln!(&mut serimpl, "        #[allow(unused_mut)]")?;
+    writeln!(&mut serimpl, "        let mut v: Vec<&str> = Vec::new();")?;
+    for (bitabs, flag) in flags.iter().enumerate() {
+        let namejs = flag.as_str().unwrap();
+        let byte = bitabs / 8;
+        let bitrel = bitabs % 8;
+
+        let namejs = match namejs {
+            "final" => "r#final",
+            _ => namejs,
+        };
+        let fnname = namejs.to_case(Case::Snake);
+
+        writeln!(
+            &mut serimpl,
+            "        if (self.0[{}] >> {}) & 0x1 == 1 {{",
+            byte, bitrel
+        )?;
+        writeln!(
+            &mut serimpl,
+            "            v.push(\"{}\");",
+            escape_str(&namejs)
+        )?;
+        writeln!(&mut serimpl, "        }}")?;
+
+        writeln!(
+            &mut modcode,
+            "    pub fn {}(&mut self, v: bool) -> &mut Self {{",
+            fnname
+        )?;
+        writeln!(
+            &mut modcode,
+            "        if v {{ self.0[{}] |= 1 << {}; }}",
+            byte, bitrel
+        )?;
+        writeln!(
+            &mut modcode,
+            "        else {{ self.0[{}] &= !(1 << {}); }}",
+            byte, bitrel
+        )?;
+        writeln!(&mut modcode, "        self")?;
+        writeln!(&mut modcode, "    }}")?;
+    }
+    writeln!(
+        &mut serimpl,
+        "        serializer.serialize_str(&v.join(\"+\"))"
+    )?;
+    impl_serialize_end(&mut serimpl)?;
+    enum_impl_end(&mut modcode)?;
+    modcode.write(&serimpl)?;
+
+    let mut serimpl: Vec<u8> = Vec::new();
+    impl_serialize_start(&mut serimpl, &subtypename, false)?;
+    writeln!(&mut serimpl, "        match self {{")?;
+
+    writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
+    writeln!(&mut modcode, "    Flags({}),", subtypeflagsname)?;
+    let nextras = gen_enum(&mut modcode, &mut serimpl, &attr["extras"])?;
+    writeln!(&mut modcode, "}}")?;
+
+    writeln!(
+        &mut serimpl,
+        "            Self::Flags(v) => v.serialize(serializer),"
+    )?;
+    writeln!(&mut serimpl, "        }}")?;
+    impl_serialize_end(&mut serimpl)?;
+    modcode.write(&serimpl)?;
+
+    writeln!(&mut modcode, "impl Default for {} {{", subtypename)?;
+    writeln!(&mut modcode, "    fn default() -> Self {{")?;
+    writeln!(
+        &mut modcode,
+        "        Self::Flags({}::default())",
+        subtypeflagsname
+    )?;
+    writeln!(&mut modcode, "    }}")?;
+    writeln!(&mut modcode, "}}")?;
+
+    enum_impl_start(&mut modcode, &subtypename, false)?;
+    writeln!(
+        &mut modcode,
+        "    pub fn flags(&mut self) -> &mut {} {{",
+        subtypeflagsname
+    )?;
+    writeln!(
+        &mut modcode,
+        "        *self = Self::Flags({}::default());",
+        subtypeflagsname
+    )?;
+    writeln!(&mut modcode, "        match self {{")?;
+    writeln!(&mut modcode, "            Self::Flags(v) => v,")?;
+    if nextras > 0 {
+        writeln!(&mut modcode, "            _ => unreachable!(),")?;
+    }
+    writeln!(&mut modcode, "        }}")?;
+    writeln!(&mut modcode, "    }}")?;
+
+    writeln!(
+        &mut modcode,
+        "    pub fn set(&mut self, v: {}) {{",
+        subtypename
+    )?;
+    writeln!(&mut modcode, "        *self = v;")?;
+    writeln!(&mut modcode, "    }}")?;
+    enum_impl_end(&mut modcode)?;
 
     Ok(subtypename)
 }
@@ -347,46 +536,39 @@ fn gen_struct<F: std::io::Write>(
             }
         }
 
-        if let Some(valtype) = attr["valType"].as_str() {
-            let subtypename = match valtype {
-                "enumerated" => Some(format!(
-                    "{}{}",
-                    namespace,
-                    handle_enumerated(&attrname, attr, &mut modcode)?
-                )),
-                "data_array" => get_dataarray_type(&attrname),
-                _ => None,
+        let (use_isempty, typestr) = if let Some(valtype) = attr["valType"].as_str() {
+            let (subtypename, use_isempty) = match valtype {
+                "enumerated" => (
+                    Some(format!(
+                        "{}{}",
+                        namespace,
+                        handle_enumerated(&attrname, attr, &mut modcode)?
+                    )),
+                    false,
+                ),
+                "flaglist" => (
+                    Some(format!(
+                        "{}{}",
+                        namespace,
+                        handle_flaglist(&attrname, attr, &mut modcode)?
+                    )),
+                    true,
+                ),
+                "data_array" => (get_dataarray_type(&attrname), false),
+                _ => (None, false),
             };
 
             let rusttype = RustType::new(valtype, subtypename);
             let (type_lifetimes, type_generics) =
                 make_lt_and_g(&attrname, rusttype.num_lifetimes(), rusttype.num_generics());
 
-            let typestr = rusttype.to_str(Some(&type_lifetimes), Some(&type_generics));
-
-            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
-            writeln!(
-                &mut fields,
-                "    #[serde(skip_serializing_if = \"Option::is_none\")]"
-            )?;
-            writeln!(&mut fields, "    {}: Option<{}>,", attrname, typestr)?;
-
             if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
                 lifetimes.push("'a".to_string());
             }
             generics.extend_from_slice(&type_generics);
 
-            if let Some(description) = attr["description"].as_str() {
-                writeln!(&mut code, "    /// {}", description)?;
-            }
-            writeln!(
-                &mut code,
-                "    pub fn {}(&mut self, {}: {}) -> &mut Self {{",
-                attrname, attrname, typestr
-            )?;
-            writeln!(&mut code, "        self.{} = Some({});", attrname, attrname)?;
-            writeln!(&mut code, "        self")?;
-            writeln!(&mut code, "    }}")?;
+            let typestr = rusttype.to_str(Some(&type_lifetimes), Some(&type_generics));
+            (use_isempty, typestr)
         } else if let Some(role) = attr["role"].as_str() {
             if role != "object" {
                 panic!("role {} is not supported", role);
@@ -412,8 +594,25 @@ fn gen_struct<F: std::io::Write>(
             let params_joined = [&type_lifetimes[..], &type_generics[..]]
                 .concat()
                 .join(", ");
-            let typestr = format!("{}{}<{}>", namespace, substructname, params_joined);
 
+            if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
+                lifetimes.push("'a".to_string());
+            }
+            generics.extend_from_slice(&type_generics);
+
+            let typestr = format!("{}{}<{}>", namespace, substructname, params_joined);
+            (true, typestr)
+        } else {
+            panic!(
+                "unsupported member: {}/{} = {:?}",
+                structname, attrname_js, attr
+            );
+        };
+
+        if let Some(description) = attr["description"].as_str() {
+            writeln!(&mut code, "    /// {}", description)?;
+        }
+        if use_isempty {
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
             writeln!(
                 &mut fields,
@@ -425,14 +624,6 @@ fn gen_struct<F: std::io::Write>(
                 attrname, typestr
             )?;
 
-            if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
-                lifetimes.push("'a".to_string());
-            }
-            generics.extend_from_slice(&type_generics);
-
-            if let Some(description) = attr["description"].as_str() {
-                writeln!(&mut code, "    /// {}", description)?;
-            }
             writeln!(
                 &mut code,
                 "    pub fn {}(&mut self) -> &mut {} {{",
@@ -442,10 +633,21 @@ fn gen_struct<F: std::io::Write>(
             writeln!(&mut code, "        &mut self.{}.data", attrname)?;
             writeln!(&mut code, "    }}")?;
         } else {
-            panic!(
-                "unsupported member: {}/{} = {:?}",
-                structname, attrname_js, attr
-            );
+            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
+            writeln!(
+                &mut fields,
+                "    #[serde(skip_serializing_if = \"Option::is_none\")]"
+            )?;
+            writeln!(&mut fields, "    {}: Option<{}>,", attrname, typestr)?;
+
+            writeln!(
+                &mut code,
+                "    pub fn {}(&mut self, {}: {}) -> &mut Self {{",
+                attrname, attrname, typestr
+            )?;
+            writeln!(&mut code, "        self.{} = Some({});", attrname, attrname)?;
+            writeln!(&mut code, "        self")?;
+            writeln!(&mut code, "    }}")?;
         }
     }
 
