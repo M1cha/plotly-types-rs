@@ -71,7 +71,7 @@ impl RustType {
             PlotlyType::DataArray => {
                 if let Some(subtype) = &self.subtype {
                     // TODO: this is a hack
-                    if subtype.starts_with("&") {
+                    if subtype.starts_with('&') {
                         2
                     } else {
                         1
@@ -112,7 +112,7 @@ impl RustType {
             PlotlyType::Color | PlotlyType::String | PlotlyType::SubplotId => {
                 let lifetimes = lifetimes.unwrap();
                 lifetimes.get(0).unwrap();
-                v.write(b"{STR}").unwrap();
+                v.write_all(b"{STR}").unwrap();
             }
             PlotlyType::Enumerated => {
                 write!(&mut v, "{}", self.subtype.as_ref().unwrap()).unwrap();
@@ -277,7 +277,7 @@ where
 
     for val in values.members() {
         let mut handle_str = |namejs: &str| -> Result<Option<String>, Error> {
-            if namejs.len() == 0 {
+            if namejs.is_empty() {
                 return Ok(None);
             }
             let namerust = str2enum(namejs);
@@ -351,7 +351,7 @@ where
 
     writeln!(&mut serimpl, "        }}")?;
     impl_serialize_end(&mut serimpl)?;
-    modcode.write(&serimpl)?;
+    modcode.write_all(&serimpl)?;
 
     Ok(subtypename)
 }
@@ -400,6 +400,7 @@ where
         };
         let fnname = namejs.to_case(Case::Snake);
 
+        writeln!(&mut serimpl, "        #[allow(clippy::identity_op)]")?;
         writeln!(
             &mut serimpl,
             "        if (self.0[{}] >> {}) & 0x1 == 1 {{",
@@ -412,6 +413,7 @@ where
         )?;
         writeln!(&mut serimpl, "        }}")?;
 
+        writeln!(&mut modcode, "        #[allow(clippy::identity_op)]")?;
         writeln!(
             &mut modcode,
             "    pub fn {}(&mut self, v: bool) -> &mut Self {{",
@@ -436,7 +438,7 @@ where
     )?;
     impl_serialize_end(&mut serimpl)?;
     enum_impl_end(&mut modcode)?;
-    modcode.write(&serimpl)?;
+    modcode.write_all(&serimpl)?;
 
     let mut serimpl: Vec<u8> = Vec::new();
     impl_serialize_start(&mut serimpl, &subtypename, false)?;
@@ -453,7 +455,7 @@ where
     )?;
     writeln!(&mut serimpl, "        }}")?;
     impl_serialize_end(&mut serimpl)?;
-    modcode.write(&serimpl)?;
+    modcode.write_all(&serimpl)?;
 
     writeln!(&mut modcode, "impl Default for {} {{", subtypename)?;
     writeln!(&mut modcode, "    fn default() -> Self {{")?;
@@ -564,7 +566,7 @@ fn gen_struct<F: std::io::Write>(
             let (type_lifetimes, type_generics) =
                 make_lt_and_g(&attrname, rusttype.num_lifetimes(), rusttype.num_generics());
 
-            if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
+            if !type_lifetimes.is_empty() && lifetimes.is_empty() {
                 lifetimes.push("'a".to_string());
             }
             generics.extend_from_slice(&type_generics);
@@ -597,7 +599,7 @@ fn gen_struct<F: std::io::Write>(
                 .concat()
                 .join(", ");
 
-            if type_lifetimes.len() > 0 && lifetimes.len() == 0 {
+            if !type_lifetimes.is_empty() && lifetimes.is_empty() {
                 lifetimes.push("'a".to_string());
             }
             generics.extend_from_slice(&type_generics);
@@ -743,26 +745,28 @@ fn gen_struct<F: std::io::Write>(
     }
     writeln!(f, "#[derive(Default, Serialize)]")?;
     writeln!(f, "pub struct {}<{}> {{", structname, params_joined)?;
-    f.write(&fields)?;
+    f.write_all(&fields)?;
     writeln!(f, "}}")?;
     writeln!(f)?;
 
+    writeln!(f, "#[allow(clippy::wrong_self_convention)]")?;
+    writeln!(f, "#[allow(clippy::ptr_arg)]")?;
     writeln!(
         f,
         "impl<{}> {}<{}> {{",
         params_joined, structname, params_joined
     )?;
-    f.write(&code)?;
+    f.write_all(&code)?;
     writeln!(f, "}}")?;
 
-    if modcode.len() > 0 {
+    if !modcode.is_empty() {
         if let Some(modname) = &modname {
             writeln!(f, "pub mod {} {{", modname)?;
             writeln!(f, "#[allow(unused_imports)]")?;
             writeln!(f, "use serde::Serialize;")?;
         }
 
-        f.write(&modcode)?;
+        f.write_all(&modcode)?;
 
         if modname.is_some() {
             writeln!(f, "}}")?;
@@ -774,7 +778,7 @@ fn gen_struct<F: std::io::Write>(
 
 fn main() -> Result<(), Error> {
     let pkg_version = env!("CARGO_PKG_VERSION");
-    let plotly_version = pkg_version.splitn(2, "-").next().unwrap();
+    let plotly_version = pkg_version.splitn(2, '-').next().unwrap();
     let schema_url = format!(
         "https://raw.githubusercontent.com/plotly/plotly.js/v{}/dist/plot-schema.json",
         plotly_version
@@ -859,7 +863,7 @@ fn main() -> Result<(), Error> {
     )?;
     writeln!(
         &mut f_mod,
-        "pub static URL_CDN: &'static str = \"https://cdn.plot.ly/plotly-{}.min.js\";",
+        "pub static URL_CDN: &str = \"https://cdn.plot.ly/plotly-{}.min.js\";",
         plotly_version
     )?;
 
