@@ -508,6 +508,7 @@ fn gen_struct<F: std::io::Write>(
     let mut fields: Vec<u8> = Vec::new();
     let mut lifetimes: Vec<String> = Vec::new();
     let mut generics: Vec<String> = Vec::new();
+    let is_layout = modname.is_none() && structname == "Layout";
 
     let namespace = if let Some(modname) = &modname {
         format!("{}::", modname)
@@ -617,26 +618,76 @@ fn gen_struct<F: std::io::Write>(
         if attr.has_key("dflt") {
             writeln!(&mut code, "    /// default: `{}`", attr["dflt"])?;
         }
-        if use_isempty {
-            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
-            writeln!(
-                &mut fields,
-                "    #[serde(skip_serializing_if = \"crate::IsEmpty::is_empty\")]"
-            )?;
-            writeln!(
-                &mut fields,
-                "    {}: crate::IsEmpty<{}>,",
-                attrname, typestr
-            )?;
 
-            writeln!(
-                &mut code,
-                "    pub fn {}(&mut self) -> &mut {} {{",
-                attrname, typestr
-            )?;
-            writeln!(&mut code, "        self.{}.is_empty = false;", attrname)?;
-            writeln!(&mut code, "        &mut self.{}.data", attrname)?;
-            writeln!(&mut code, "    }}")?;
+        if use_isempty {
+            let needs_array = is_layout
+                && match attrname.as_ref() {
+                    "xaxis" | "yaxis" | "coloraxis" => true,
+                    _ => false,
+                };
+
+            if needs_array {
+                writeln!(&mut fields, "    #[serde(flatten)]")?;
+                writeln!(
+                    &mut fields,
+                    "    {}: std::collections::HashMap<String, {}>,",
+                    attrname, typestr
+                )?;
+
+                writeln!(
+                    &mut code,
+                    "    pub fn {}(&mut self, id: usize) -> &mut {} {{",
+                    attrname, typestr
+                )?;
+                writeln!(
+                    &mut code,
+                    "        let field = if id == 0 {{ \"{}\".to_string() }}",
+                    attrname_js
+                )?;
+                writeln!(
+                    &mut code,
+                    "                    else {{ format!(\"{}{{}}\", id + 1) }};",
+                    attrname_js
+                )?;
+                writeln!(
+                    &mut code,
+                    "        if self.{}.get(&field).is_none() {{",
+                    attrname
+                )?;
+                writeln!(
+                    &mut code,
+                    "            self.{}.insert(field.clone(), {}::default());",
+                    attrname,
+                    typestr.replace("<'a>", "")
+                )?;
+                writeln!(&mut code, "        }}")?;
+                writeln!(
+                    &mut code,
+                    "        self.{}.get_mut(&field).unwrap()",
+                    attrname
+                )?;
+                writeln!(&mut code, "    }}")?;
+            } else {
+                writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
+                writeln!(
+                    &mut fields,
+                    "    #[serde(skip_serializing_if = \"crate::IsEmpty::is_empty\")]"
+                )?;
+                writeln!(
+                    &mut fields,
+                    "    {}: crate::IsEmpty<{}>,",
+                    attrname, typestr
+                )?;
+
+                writeln!(
+                    &mut code,
+                    "    pub fn {}(&mut self) -> &mut {} {{",
+                    attrname, typestr
+                )?;
+                writeln!(&mut code, "        self.{}.is_empty = false;", attrname)?;
+                writeln!(&mut code, "        &mut self.{}.data", attrname)?;
+                writeln!(&mut code, "    }}")?;
+            }
         } else if typestr == "{STR}" {
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
             writeln!(
