@@ -111,7 +111,8 @@ impl RustType {
             // strings
             PlotlyType::Color | PlotlyType::String | PlotlyType::SubplotId => {
                 let lifetimes = lifetimes.unwrap();
-                write!(&mut v, "&{} str", lifetimes[0]).unwrap();
+                lifetimes.get(0).unwrap();
+                v.write(b"{STR}").unwrap();
             }
             PlotlyType::Enumerated => {
                 write!(&mut v, "{}", self.subtype.as_ref().unwrap()).unwrap();
@@ -635,6 +636,30 @@ fn gen_struct<F: std::io::Write>(
             )?;
             writeln!(&mut code, "        self.{}.is_empty = false;", attrname)?;
             writeln!(&mut code, "        &mut self.{}.data", attrname)?;
+            writeln!(&mut code, "    }}")?;
+        } else if typestr == "{STR}" {
+            writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
+            writeln!(
+                &mut fields,
+                "    #[serde(skip_serializing_if = \"Option::is_none\")]"
+            )?;
+            writeln!(
+                &mut fields,
+                "    {}: Option<std::borrow::Cow<'a, str>>,",
+                attrname
+            )?;
+
+            writeln!(
+                &mut code,
+                "    pub fn {}<T: Into<std::borrow::Cow<'a, str>>>(&mut self, {}: T) -> &mut Self {{",
+                attrname, attrname
+            )?;
+            writeln!(
+                &mut code,
+                "        self.{} = Some({}.into());",
+                attrname, attrname
+            )?;
+            writeln!(&mut code, "        self")?;
             writeln!(&mut code, "    }}")?;
         } else {
             writeln!(&mut fields, "    #[serde(rename = \"{}\")]", attrname_js)?;
