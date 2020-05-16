@@ -78,8 +78,8 @@ pub use error::Error;
 pub struct Plot<'a, W, D> {
     w: W,
     graph_div: D,
-    layout: &'a layout::Layout<'a>,
-    config: &'a config::Config<'a>,
+    layout: layout::Layout<'a>,
+    config: config::Config<'a>,
     ntraces: usize,
 }
 
@@ -88,20 +88,23 @@ where
     W: std::io::Write,
     D: AsRef<str>,
 {
-    pub fn new(
-        mut w: W,
-        graph_div: D,
-        layout: &'a layout::Layout,
-        config: &'a config::Config,
-    ) -> Result<Self, Error> {
+    pub fn new(mut w: W, graph_div: D) -> Result<Self, Error> {
         write!(w, "var data = [")?;
         Ok(Self {
             w,
             graph_div,
-            layout,
-            config,
+            layout: layout::Layout::default(),
+            config: config::Config::default(),
             ntraces: 0,
         })
+    }
+
+    pub fn layout(&mut self) -> &mut layout::Layout<'a> {
+        &mut self.layout
+    }
+
+    pub fn config(&mut self) -> &mut config::Config<'a> {
+        &mut self.config
     }
 
     pub fn add_trace<T>(&mut self, trace: T) -> Result<(), Error>
@@ -118,15 +121,15 @@ where
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(), Error> {
+    pub fn finish(mut self) -> Result<W, Error> {
         writeln!(self.w, "];")?;
 
         write!(self.w, "var layout = ")?;
-        serde_json::to_writer(&mut self.w, self.layout)?;
+        serde_json::to_writer(&mut self.w, &self.layout)?;
         writeln!(self.w, ";")?;
 
         write!(self.w, "var config = ")?;
-        serde_json::to_writer(&mut self.w, self.config)?;
+        serde_json::to_writer(&mut self.w, &self.config)?;
         writeln!(self.w, ";")?;
 
         writeln!(
@@ -135,6 +138,6 @@ where
             self.graph_div.as_ref()
         )?;
 
-        Ok(())
+        Ok(self.w)
     }
 }
