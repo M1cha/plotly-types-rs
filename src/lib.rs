@@ -134,7 +134,7 @@ where
 
         writeln!(
             self.w,
-            "Plotly.newPlot(\"{}\", data, layout, config);",
+            "function makeplot() {{ Plotly.newPlot(\"{}\", data, layout, config); }}",
             self.graph_div.as_ref()
         )?;
 
