@@ -42,7 +42,7 @@ pub type Any = serde_json::Value;
 pub type InfoArray = Vec<serde_json::Value>;
 pub type Angle = f64;
 
-struct IsEmpty<T> {
+pub struct IsEmpty<T> {
     pub data: T,
     pub is_empty: bool,
 }

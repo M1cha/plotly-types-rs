@@ -632,7 +632,7 @@ fn gen_struct<F: std::io::Write>(
                 writeln!(&mut fields, "    #[serde(flatten)]")?;
                 writeln!(
                     &mut fields,
-                    "    {}: std::collections::HashMap<String, {}>,",
+                    "    pub {}: std::collections::HashMap<String, {}>,",
                     attrname, typestr
                 )?;
 
@@ -677,7 +677,7 @@ fn gen_struct<F: std::io::Write>(
                 )?;
                 writeln!(
                     &mut fields,
-                    "    {}: crate::IsEmpty<{}>,",
+                    "    pub {}: crate::IsEmpty<{}>,",
                     attrname, typestr
                 )?;
 
@@ -698,7 +698,7 @@ fn gen_struct<F: std::io::Write>(
             )?;
             writeln!(
                 &mut fields,
-                "    {}: Option<std::borrow::Cow<'a, str>>,",
+                "    pub {}: Option<std::borrow::Cow<'a, str>>,",
                 attrname
             )?;
 
@@ -720,7 +720,7 @@ fn gen_struct<F: std::io::Write>(
                 &mut fields,
                 "    #[serde(skip_serializing_if = \"Option::is_none\")]"
             )?;
-            writeln!(&mut fields, "    {}: Option<{}>,", attrname, typestr)?;
+            writeln!(&mut fields, "    pub {}: Option<{}>,", attrname, typestr)?;
 
             writeln!(
                 &mut code,
