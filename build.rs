@@ -277,7 +277,7 @@ where
 
     for val in values.members() {
         let mut handle_str = |namejs: &str| -> Result<Option<String>, Error> {
-            if namejs.is_empty() {
+            if namejs.is_empty() || namejs.chars().nth(0).unwrap().is_ascii_digit() {
                 return Ok(None);
             }
             let namerust = str2enum(namejs);
