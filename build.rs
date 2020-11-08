@@ -149,7 +149,7 @@ impl RustType {
                 write!(&mut v, "&{} crate::InfoArray", lifetimes[0]).unwrap();
             }
             PlotlyType::Integer => {
-                write!(&mut v, "u64").unwrap();
+                write!(&mut v, "i64").unwrap();
             }
             PlotlyType::Number => {
                 write!(&mut v, "f64").unwrap();
