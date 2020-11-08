@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ColorScaleElem<'s>(f64, &'s str);
 
 impl<'s> ColorScaleElem<'s> {
@@ -9,7 +9,7 @@ impl<'s> ColorScaleElem<'s> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub enum ColorScaleName {
     Greys,
     YlGnBu,
@@ -31,7 +31,7 @@ pub enum ColorScaleName {
     Cividis,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
 pub enum ColorScale<'a> {
     Name(ColorScaleName),
@@ -42,6 +42,7 @@ pub type Any = serde_json::Value;
 pub type InfoArray = Vec<serde_json::Value>;
 pub type Angle = f64;
 
+#[derive(Debug, Clone)]
 pub struct IsEmpty<T> {
     pub data: T,
     pub is_empty: bool,

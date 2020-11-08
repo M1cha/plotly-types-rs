@@ -345,6 +345,7 @@ where
     impl_serialize_start(&mut serimpl, &subtypename, false)?;
     writeln!(&mut serimpl, "        match self {{")?;
 
+    writeln!(&mut modcode, "#[derive(Clone, Debug)]")?;
     writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
     gen_enum(&mut modcode, &mut serimpl, &attr["values"])?;
     writeln!(&mut modcode, "}}")?;
@@ -377,7 +378,7 @@ where
     let nbits = flags.len();
     let nbytes = roundup(nbits, 8) / 8;
 
-    writeln!(&mut modcode, "#[derive(Default)]")?;
+    writeln!(&mut modcode, "#[derive(Default, Clone, Debug)]")?;
     writeln!(
         &mut modcode,
         "pub struct {} ([u8; {}]);",
@@ -444,6 +445,7 @@ where
     impl_serialize_start(&mut serimpl, &subtypename, false)?;
     writeln!(&mut serimpl, "        match self {{")?;
 
+    writeln!(&mut modcode, "#[derive(Clone, Debug)]")?;
     writeln!(&mut modcode, "pub enum {} {{", subtypename)?;
     writeln!(&mut modcode, "    Flags({}),", subtypeflagsname)?;
     let nextras = gen_enum(&mut modcode, &mut serimpl, &attr["extras"])?;
@@ -743,7 +745,7 @@ fn gen_struct<F: std::io::Write>(
     if let Some(description) = description {
         writeln!(f, "/// {}", description)?;
     }
-    writeln!(f, "#[derive(Default, Serialize)]")?;
+    writeln!(f, "#[derive(Default, Clone, Debug, Serialize)]")?;
     writeln!(f, "pub struct {}<{}> {{", structname, params_joined)?;
     f.write_all(&fields)?;
     writeln!(f, "}}")?;
