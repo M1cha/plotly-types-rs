@@ -621,6 +621,15 @@ fn gen_struct<F: std::io::Write>(
         }
         if attr.has_key("dflt") {
             writeln!(&mut code, "    /// default: `{}`", attr["dflt"])?;
+            writeln!(&mut code, "    ///")?;
+        }
+        if attr.has_key("min") {
+            writeln!(&mut code, "    /// min: `{}`", attr["min"])?;
+            writeln!(&mut code, "    ///")?;
+        }
+        if attr.has_key("max") {
+            writeln!(&mut code, "    /// max: `{}`", attr["max"])?;
+            writeln!(&mut code, "    ///")?;
         }
 
         if use_isempty {
